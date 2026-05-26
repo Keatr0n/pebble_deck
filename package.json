@@ -1,48 +1,37 @@
 {
-    "author": "MakeAwesomeHappen",
+    "author": "Keaton Mustard",
     "dependencies": {
         "@rebble/clay": "^1.0.8"
     },
     "keywords": [
         "pebble-app"
     ],
-    "name": "watchface-tutorial",
+    "name": "pebble-deck",
     "pebble": {
         "capabilities": [
             "location",
             "configurable",
             "health"
         ],
-        "displayName": "Tutorial Watchface",
+        "displayName": "pebble_deck",
         "enableMultiJS": true,
         "messageKeys": [
-            "TEMPERATURE",
-            "CONDITIONS",
-            "REQUEST_WEATHER",
+            "Temperature",
+            "Conditions",
+            "RequestWeather",
             "BackgroundColor",
             "TextColor",
             "TemperatureUnit",
             "ShowDate",
-            "CUSTOM_API"
+            "Alt",
+            "CustomApi"
         ],
         "projectType": "native",
         "resources": {
             "media": [
                 {
                     "file": "fonts/ChakraPetch-SemiBold.ttf",
-                    "name": "FONT_CHAKRA_24",
-                    "targetPlatforms": null,
-                    "type": "font"
-                },
-                {
-                    "file": "fonts/ChakraPetch-SemiBold.ttf",
                     "name": "FONT_CHAKRA_56",
-                    "targetPlatforms": null,
-                    "type": "font"
-                },
-                {
-                    "file": "fonts/ChakraPetch-SemiBold.ttf",
-                    "name": "FONT_CHAKRA_14",
                     "targetPlatforms": null,
                     "type": "font"
                 },

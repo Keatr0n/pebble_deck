@@ -1,5 +1,4 @@
 #include <pebble.h>
-#include <math.h>
 
 #define SETTINGS_KEY 1
 #define MAX_SLOTS 7
@@ -14,13 +13,14 @@ typedef enum {
   COMP_HEART_RATE,
   COMP_STEPS,
   COMP_WEATHER,
-  COMP_CUSTOM_API // Placeholder for your future custom endpoint!
+  COMP_ALT,
+  COMP_CUSTOM_API
 } ComplicationType;
 
 typedef struct ClaySettings {
   GColor BackgroundColor;
   GColor TextColor;
-  bool TemperatureUnit; 
+  bool TemperatureUnit;
   ComplicationType ActiveSlots[MAX_SLOTS];
 } ClaySettings;
 
@@ -35,7 +35,7 @@ static char s_slot_buffers[MAX_SLOTS][32];
 
 // Fonts
 static GFont s_time_font;
-static GFont s_sys_font; 
+static GFont s_sys_font;
 
 // Global Data Caches
 static int s_battery_level = 0;
@@ -45,18 +45,19 @@ static bool s_compass_valid = false;
 static int s_hr_value = 0;
 static int s_steps_value = 0;
 static char s_weather_cache[32] = "SCANNING...";
-static char s_api_cache[32] = "NO DATA";
+static char s_api_cache[16] = "NO DATA";
+static int s_alt_cache = 0;
 
 static BitmapLayer *s_bt_icon_layer;
 static GBitmap *s_bt_icon_bitmap;
 static Layer *s_window_layer;
-static Layer *s_hud_layer; 
+static Layer *s_hud_layer;
 
 static void prv_default_settings() {
   settings.BackgroundColor = GColorBlack;
-  settings.TextColor = GColorCyan; 
-  settings.TemperatureUnit = false; 
-  
+  settings.TextColor = GColorCyan;
+  settings.TemperatureUnit = false;
+
   // Default stack order of your original face
   settings.ActiveSlots[0] = COMP_DATE;
   settings.ActiveSlots[1] = COMP_BATTERY;
@@ -93,7 +94,7 @@ static void render_slots() {
   for (int i = 0; i < MAX_SLOTS; i++) {
     ComplicationType current_comp = settings.ActiveSlots[i];
     char *buffer = s_slot_buffers[i];
-    
+
     switch(current_comp) {
       case COMP_DATE: {
         time_t temp = time(NULL);
@@ -147,9 +148,12 @@ static void render_slots() {
       case COMP_CUSTOM_API:
         snprintf(buffer, 32, "[API] >> %s", s_api_cache);
         break;
+    case COMP_ALT:
+        snprintf(buffer, 32, "[ALT] >> %d", s_alt_cache);
+        break;
       case COMP_NONE:
       default:
-        snprintf(buffer, 32, "   "); 
+        snprintf(buffer, 32, "   ");
         break;
     }
     text_layer_set_text(s_slot_layers[i], buffer);
@@ -176,18 +180,18 @@ static void update_time_data() {
   static char s_time_buffer[8];
   strftime(s_time_buffer, sizeof(s_time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M", tick_time);
   text_layer_set_text(s_time_layer, s_time_buffer);
-  
+
   render_slots();
 }
 
 static void compass_handler(CompassHeadingData heading_data) {
-  if (heading_data.compass_status == CompassStatusDataInvalid || 
+  if (heading_data.compass_status == CompassStatusDataInvalid ||
       heading_data.compass_status == CompassStatusCalibrating) {
     s_compass_valid = false;
   } else {
     s_compass_valid = true;
     s_compass_degrees = TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
-    
+
     if(s_compass_degrees < 23 || s_compass_degrees > 337) s_compass_dir = "N";
     else if(s_compass_degrees < 68) s_compass_dir = "NE";
     else if(s_compass_degrees < 113) s_compass_dir = "E";
@@ -205,7 +209,7 @@ static void update_hr() {
   HealthMetric metric = HealthMetricHeartRateBPM;
   time_t start = time(NULL);
   time_t end = time(NULL);
-  
+
   if (health_service_metric_accessible(metric, start, end) & HealthServiceAccessibilityMaskAvailable) {
     HealthValue hr = health_service_peek_current_value(metric);
     s_hr_value = (hr > 0) ? (int)hr : -1;
@@ -221,7 +225,7 @@ static void update_steps() {
   HealthMetric metric = HealthMetricStepCount;
   time_t start = time_start_of_today();
   time_t end = time(NULL);
-  
+
   if(health_service_metric_accessible(metric, start, end) & HealthServiceAccessibilityMaskAvailable) {
     s_steps_value = (int)health_service_sum_today(metric);
   } else {
@@ -287,7 +291,8 @@ static void hud_update_proc(Layer *layer, GContext *ctx) {
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
   Tuple *temp_tuple = dict_find(iterator, MESSAGE_KEY_TEMPERATURE);
   Tuple *conditions_tuple = dict_find(iterator, MESSAGE_KEY_CONDITIONS);
-  Tuple *custom_api_tuple = dict_find(iterator, MESSAGE_KEY_CUSTOM_API); // Catching the future custom API payload!
+  Tuple *alt_tuple = dict_find(iterator, MESSAGE_KEY_ALT);
+  Tuple *custom_api_tuple = dict_find(iterator, MESSAGE_KEY_CUSTOM_API);
 
   if (temp_tuple && conditions_tuple) {
     char temperature_buffer[8];
@@ -305,12 +310,17 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     snprintf(s_api_cache, sizeof(s_api_cache), "%s", custom_api_tuple->value->cstring);
   }
 
+  if (alt_tuple) {
+    char alt_buffer[8];
+    snprintf(alt_buffer, sizeof(alt_buffer), "%dF", (int)alt_tuple->value->int32);
+  }
+
   render_slots();
 }
 
 static void prv_unobstructed_change(AnimationProgress progress, void *context) {
   GRect bounds = layer_get_unobstructed_bounds(s_window_layer);
-  int base_y = bounds.size.h - 98; 
+  int base_y = bounds.size.h - 98;
 
   for(int i = 0; i < MAX_SLOTS; i++) {
     layer_set_frame(text_layer_get_layer(s_slot_layers[i]), GRect(10, base_y + (i * 14), bounds.size.w - 20, 16));
@@ -323,7 +333,7 @@ static void main_window_load(Window *window) {
   GRect bounds = layer_get_bounds(s_window_layer);
 
   s_time_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_CHAKRA_56));
-  s_sys_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_IBM_14)); 
+  s_sys_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_IBM_14));
 
   s_hud_layer = layer_create(bounds);
   layer_set_update_proc(s_hud_layer, hud_update_proc);
@@ -336,7 +346,7 @@ static void main_window_load(Window *window) {
   layer_add_child(s_window_layer, text_layer_get_layer(s_time_layer));
 
   // Loop generation for all console lines
-  int y = 76; 
+  int y = 76;
   int step = 16;
 
   for(int i = 0; i < MAX_SLOTS; i++) {
@@ -375,7 +385,7 @@ static void init() {
   window_stack_push(s_main_window, true);
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-  
+
   // Conditionally optimize background service subscriptions based on layout
   bool needs_health = false;
   bool needs_compass = false;
@@ -389,7 +399,7 @@ static void init() {
   }
   if(needs_compass) {
     compass_service_subscribe(compass_handler);
-    compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360)); 
+    compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360));
   }
 
   battery_state_service_subscribe(battery_callback);
@@ -409,6 +419,11 @@ static void init() {
 
 static void deinit() {
   compass_service_unsubscribe();
+  health_service_events_unsubscribe();
+  battery_state_service_unsubscribe();
+  connection_service_unsubscribe();
+  tick_timer_service_unsubscribe();
+
   window_destroy(s_main_window);
 }
 
