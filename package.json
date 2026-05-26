@@ -1,0 +1,73 @@
+{
+    "author": "MakeAwesomeHappen",
+    "dependencies": {
+        "@rebble/clay": "^1.0.8"
+    },
+    "keywords": [
+        "pebble-app"
+    ],
+    "name": "watchface-tutorial",
+    "pebble": {
+        "capabilities": [
+            "location",
+            "configurable",
+            "health"
+        ],
+        "displayName": "Tutorial Watchface",
+        "enableMultiJS": true,
+        "messageKeys": [
+            "TEMPERATURE",
+            "CONDITIONS",
+            "REQUEST_WEATHER",
+            "BackgroundColor",
+            "TextColor",
+            "TemperatureUnit",
+            "ShowDate",
+            "CUSTOM_API"
+        ],
+        "projectType": "native",
+        "resources": {
+            "media": [
+                {
+                    "file": "fonts/ChakraPetch-SemiBold.ttf",
+                    "name": "FONT_CHAKRA_24",
+                    "targetPlatforms": null,
+                    "type": "font"
+                },
+                {
+                    "file": "fonts/ChakraPetch-SemiBold.ttf",
+                    "name": "FONT_CHAKRA_56",
+                    "targetPlatforms": null,
+                    "type": "font"
+                },
+                {
+                    "file": "fonts/ChakraPetch-SemiBold.ttf",
+                    "name": "FONT_CHAKRA_14",
+                    "targetPlatforms": null,
+                    "type": "font"
+                },
+                {
+                    "file": "fonts/ibm-plex-mono.bold.ttf",
+                    "name": "FONT_IBM_14",
+                    "targetPlatforms": null,
+                    "type": "font"
+                }
+            ]
+        },
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "aplite",
+            "basalt",
+            "chalk",
+            "diorite",
+            "emery",
+            "gabbro",
+            "flint"
+        ],
+        "uuid": "037efe7b-3eaf-442b-8294-0c6b99c008da",
+        "watchapp": {
+            "watchface": true
+        }
+    },
+    "version": "1.0.0"
+}
