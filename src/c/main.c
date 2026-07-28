@@ -445,7 +445,7 @@ static void main_window_load(Window *window) {
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   layer_add_child(s_window_layer, text_layer_get_layer(s_time_layer));
 
-  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 28, 36, 24, 16));
+  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 42, 54, 24, 16));
   text_layer_set_background_color(s_ampm_layer, GColorClear);
   text_layer_set_font(s_ampm_layer, s_sys_font);
   text_layer_set_text_alignment(s_ampm_layer, GTextAlignmentRight);
