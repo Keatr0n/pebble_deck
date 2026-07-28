@@ -1,27 +1,13 @@
 // Import the Clay package
-import Clay from "@rebble/clay";
+var Clay = require("pebble-clay");
 // Load our Clay configuration file
-import clayConfig from "./config";
+var clayConfig = require("./config.json");
 // Initialize Clay with auto-handling enabled
+var clay = new Clay(clayConfig);
 
-const clay = new Clay(clayConfig, null, { autoHandleEvents: true });
-
-var customEndpointUrl = "";
-
-// Helper function for XMLHttpRequest
-const xhrRequest = async (url, type) => {
-  return new Promise((resolve, _) => {
-    const xhr = new XMLHttpRequest();
-    xhr.onload = function () {
-      resolve({ status: this.status, body: this.responseText });
-    };
-    xhr.onerror = () => {
-      resolve({ status: 0, body: undefined });
-    };
-    xhr.open(type, url);
-    xhr.send();
-  });
-};
+// Default regex to extract data from the API response.
+// First capture group is sent to the watch (max 12 chars).
+var defaultApiRegex = /"summary"\s*:\s*"?([^"]+)"?/;
 
 // Convert Open-Meteo weather code to human-readable condition
 function weatherCodeToCondition(code) {
@@ -41,93 +27,171 @@ function weatherCodeToCondition(code) {
   return "UNKNOWN";
 }
 
-const updateData = async () => {
-  const pos = await new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      timeout: 15000,
-      maximumAge: 60000,
-    });
-  }).catch((_) => {});
-
-  let temperature = 0;
-  let conditions = "MET ERR";
-  let altitude = 0;
-
-  if (pos.coords !== undefined) {
-    altitude = pos.coords.altitude;
-
-    const url =
-      "https://api.open-meteo.com/v1/forecast?" +
-      "latitude=" +
-      pos.coords.latitude +
-      "&longitude=" +
-      pos.coords.longitude +
-      "&current=temperature_2m,weather_code";
-    // Send request to Open-Meteo
-    const weatherRequest = await xhrRequest(url, "GET");
-    if (weatherRequest.status === 200 && weatherRequest.body) {
-      const json = JSON.parse(weatherRequest.body);
-      temperature = Math.round(json.current.temperature_2m);
-      conditions = weatherCodeToCondition(json.current.weather_code);
-    } else {
-      conditions = "OFFLINE";
-    }
-  }
-
-  let customApiString = "API ERR";
-
-  // we do not allow insecure calls in this house
-  if (customEndpointUrl?.includes("https://")) {
-    const customResponse = await xhrRequest(customEndpointUrl, "GET");
-
-    if (customResponse.status === 200 && customResponse.body) {
-      try {
-        const res = JSON.parse(customResponse.body);
-
-        const rawText = res.text || res.status || responseText;
-        customApiString = rawText.toString().toUpperCase().substring(0, 12);
-      } catch (_) {
-        customApiString = responseText
-          .toString()
-          .toUpperCase()
-          .substring(0, 12);
-      }
-    } else {
-      customApiString = "API OFFLINE";
-    }
-  }
-
-  const dictionary = {
-    MESSAGE_KEY_TEMPERATURE: temperature,
-    MESSAGE_KEY_CONDITIONS: conditions,
-    MESSAGE_KEY_CUSTOM_API: customApiString,
-    MESSAGE_KEY_ALT: altitude,
+// Helper function for XMLHttpRequest with optional auth header
+function xhrRequest(url, type, authHeader, callback) {
+  var xhr = new XMLHttpRequest();
+  xhr.onload = function () {
+    callback(this.status, this.responseText);
   };
+  xhr.onerror = function () {
+    callback(0, null);
+  };
+  xhr.open(type, url);
+  if (authHeader) {
+    xhr.setRequestHeader("Authorization", authHeader);
+  }
+  xhr.send();
+}
+
+// Load custom API config from Clay settings stored in localStorage
+function loadApiConfig() {
+  var config = {
+    endpointUrl: "",
+    regex: defaultApiRegex,
+    auth: "",
+  };
+  try {
+    var raw = localStorage.getItem("clay-settings");
+    if (raw) {
+      var claySettings = JSON.parse(raw);
+      if (claySettings.CustomApiUrl) {
+        config.endpointUrl = claySettings.CustomApiUrl;
+      }
+      if (claySettings.CustomApiRegex) {
+        try {
+          config.regex = new RegExp(claySettings.CustomApiRegex);
+        } catch (_) {}
+      }
+      if (claySettings.CustomApiAuth) {
+        config.auth = claySettings.CustomApiAuth;
+      }
+    }
+  } catch (_) {}
+  return config;
+}
+
+// Parse custom API response body with regex, then JSON fallback, then raw text
+function parseCustomApiResponse(body, regex) {
+  var match = regex.exec(body);
+  if (match && match[1]) {
+    return match[1].toString().toUpperCase().substring(0, 12);
+  }
+  try {
+    var res = JSON.parse(body);
+    var value = res.text || res.summary || res.status || res.value;
+    return (
+      String(value || "")
+        .toUpperCase()
+        .substring(0, 12) || "NO DATA"
+    );
+  } catch (_) {
+    return body.toString().toUpperCase().substring(0, 12);
+  }
+}
+
+// Fetch custom API endpoint and then send everything to the watch
+function fetchCustomApi(temperature, conditions, altitude) {
+  var apiConfig = loadApiConfig();
+
+  if (
+    !apiConfig.endpointUrl ||
+    apiConfig.endpointUrl.indexOf("https://") !== 0
+  ) {
+    sendToWatch(temperature, conditions, altitude, "API ERR");
+    return;
+  }
+
+  xhrRequest(
+    apiConfig.endpointUrl,
+    "GET",
+    apiConfig.auth,
+    function (status, responseText) {
+      var customApiString;
+
+      if (status === 200 && responseText) {
+        customApiString = parseCustomApiResponse(responseText, apiConfig.regex);
+      } else {
+        customApiString = "API OFFLINE";
+      }
+
+      sendToWatch(temperature, conditions, altitude, customApiString);
+    }
+  );
+}
+
+// Send telemetry data to the Pebble watch
+function sendToWatch(temperature, conditions, altitude, customApiString) {
+  var dictionary = {};
+  dictionary["Temperature"] = temperature;
+  dictionary["Conditions"] = conditions;
+  dictionary["Alt"] = altitude;
+  dictionary["CustomApi"] = customApiString;
 
   Pebble.sendAppMessage(
     dictionary,
-    (_) => {
+    function () {
       console.log("Telemetry payload sent to Pebble successfully!");
     },
-    (_) => {
+    function () {
       console.log("Error sending telemetry payload to Pebble!");
-    },
+    }
   );
-};
+}
 
-// Listen for when the watchface is opened
-Pebble.addEventListener("ready", (_) => {
-  console.log("PebbleKit JS ready!");
+// Fetch weather from Open-Meteo, then fetch custom API, then send to watch
+function updateData() {
+  navigator.geolocation.getCurrentPosition(
+    function (pos) {
+      var altitude = pos.coords.altitude || 0;
+
+      var url =
+        "https://api.open-meteo.com/v1/forecast?" +
+        "latitude=" +
+        pos.coords.latitude +
+        "&longitude=" +
+        pos.coords.longitude +
+        "&current=temperature_2m,weather_code";
+
+      xhrRequest(url, "GET", null, function (status, responseText) {
+        var temperature = 0;
+        var conditions;
+
+        if (status === 200 && responseText) {
+          var json = JSON.parse(responseText);
+          temperature = Math.round(json.current.temperature_2m);
+          conditions = weatherCodeToCondition(json.current.weather_code);
+        } else {
+          conditions = "OFFLINE";
+        }
+
+        fetchCustomApi(temperature, conditions, altitude);
+      });
+    },
+    function (err) {
+      console.log("Error requesting location!");
+      fetchCustomApi(0, "NO GPS", 0);
+    },
+    {
+      timeout: 15000,
+      maximumAge: 60000,
+    }
+  );
+}
+
+Pebble.addEventListener("ready", function () {
+  console.log("Pebble ready, initializing app updates.");
   updateData();
 });
 
-// Listen for when an AppMessage is received
-Pebble.addEventListener("appmessage", (e) => {
-  console.log("AppMessage received from watch layer!");
-  if (
-    e.payload["MESSAGE_KEY_REQUEST_WEATHER"] ||
-    e.payload["REQUEST_WEATHER"]
-  ) {
+Pebble.addEventListener("webviewclosed", function (e) {
+  if (e && e.response) {
+    console.log("Settings closed. Fetching fresh data with new configs...");
+    updateData();
+  }
+});
+
+Pebble.addEventListener("appmessage", function (e) {
+  if (e.payload["RequestWeather"]) {
     updateData();
   }
 });

@@ -1,62 +1,67 @@
 {
-    "author": "Keaton Mustard",
-    "dependencies": {
-        "@rebble/clay": "^1.0.8"
-    },
-    "keywords": [
-        "pebble-app"
+  "author": "Keaton Mustard",
+  "dependencies": {
+    "pebble-clay": "^1.0.4"
+  },
+  "keywords": [
+    "pebble-app"
+  ],
+  "name": "pebble-deck",
+  "pebble": {
+    "capabilities": [
+      "location",
+      "configurable",
+      "health"
     ],
-    "name": "pebble-deck",
-    "pebble": {
-        "capabilities": [
-            "location",
-            "configurable",
-            "health"
-        ],
-        "displayName": "pebble_deck",
-        "enableMultiJS": true,
-        "messageKeys": [
-            "Temperature",
-            "Conditions",
-            "RequestWeather",
-            "BackgroundColor",
-            "TextColor",
-            "TemperatureUnit",
-            "ShowDate",
-            "Alt",
-            "CustomApi"
-        ],
-        "projectType": "native",
-        "resources": {
-            "media": [
-                {
-                    "file": "fonts/ChakraPetch-SemiBold.ttf",
-                    "name": "FONT_CHAKRA_56",
-                    "targetPlatforms": null,
-                    "type": "font"
-                },
-                {
-                    "file": "fonts/ibm-plex-mono.bold.ttf",
-                    "name": "FONT_IBM_14",
-                    "targetPlatforms": null,
-                    "type": "font"
-                }
-            ]
+    "displayName": "pebble_deck",
+    "enableMultiJS": true,
+    "messageKeys": [
+      "Temperature",
+      "Conditions",
+      "RequestWeather",
+      "BackgroundColor",
+      "TextColor",
+      "TemperatureUnit",
+      "ShowDate",
+      "Alt",
+      "CustomApi",
+      "CustomApiUrl",
+      "CustomApiRegex",
+      "CustomApiAuth",
+      "ActiveSlots1",
+      "ActiveSlots2",
+      "ActiveSlots3",
+      "ActiveSlots4",
+      "ActiveSlots5",
+      "ActiveSlots6",
+      "ActiveSlots7",
+      "Tz2Offset"
+    ],
+    "projectType": "native",
+    "resources": {
+      "media": [
+        {
+          "file": "fonts/ChakraPetch-SemiBold.ttf",
+          "name": "FONT_CHAKRA_56",
+          "targetPlatforms": null,
+          "type": "font"
         },
-        "sdkVersion": "3",
-        "targetPlatforms": [
-            "aplite",
-            "basalt",
-            "chalk",
-            "diorite",
-            "emery",
-            "gabbro",
-            "flint"
-        ],
-        "uuid": "037efe7b-3eaf-442b-8294-0c6b99c008da",
-        "watchapp": {
-            "watchface": true
+        {
+          "file": "fonts/ibm-plex-mono.bold.ttf",
+          "name": "FONT_IBM_14",
+          "targetPlatforms": null,
+          "type": "font"
         }
+      ]
     },
-    "version": "1.0.0"
+    "sdkVersion": "3",
+    "targetPlatforms": [
+      "emery"
+    ],
+    "uuid": "037efe7b-3eaf-442b-8294-0c6b99c008da",
+    "watchapp": {
+      "watchface": true
+    }
+  },
+  "version": "1.0.0"
 }

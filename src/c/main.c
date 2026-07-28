@@ -14,7 +14,8 @@ typedef enum {
   COMP_STEPS,
   COMP_WEATHER,
   COMP_ALT,
-  COMP_CUSTOM_API
+  COMP_CUSTOM_API,
+  COMP_TZ2
 } ComplicationType;
 
 typedef struct ClaySettings {
@@ -22,12 +23,15 @@ typedef struct ClaySettings {
   GColor TextColor;
   bool TemperatureUnit;
   ComplicationType ActiveSlots[MAX_SLOTS];
+  int8_t Tz2Offset;
 } ClaySettings;
 
 static ClaySettings settings;
 
 static Window *s_main_window;
 static TextLayer *s_time_layer;
+static TextLayer *s_ampm_layer;
+static char s_ampm_buffer[3];
 
 // Dynamic Slot Arrays
 static TextLayer *s_slot_layers[MAX_SLOTS];
@@ -48,6 +52,9 @@ static char s_weather_cache[32] = "SCANNING...";
 static char s_api_cache[16] = "NO DATA";
 static int s_alt_cache = 0;
 
+static AppTimer *s_compass_timer = NULL;
+static bool s_compass_subscribed = false;
+
 static BitmapLayer *s_bt_icon_layer;
 static GBitmap *s_bt_icon_bitmap;
 static Layer *s_window_layer;
@@ -57,6 +64,7 @@ static void prv_default_settings() {
   settings.BackgroundColor = GColorBlack;
   settings.TextColor = GColorCyan;
   settings.TemperatureUnit = false;
+  settings.Tz2Offset = 0;
 
   // Default stack order of your original face
   settings.ActiveSlots[0] = COMP_DATE;
@@ -148,9 +156,21 @@ static void render_slots() {
       case COMP_CUSTOM_API:
         snprintf(buffer, 32, "[API] >> %s", s_api_cache);
         break;
-    case COMP_ALT:
+      case COMP_ALT:
         snprintf(buffer, 32, "[ALT] >> %d", s_alt_cache);
         break;
+      case COMP_TZ2: {
+        time_t utc_now = time(NULL);
+        time_t tz2_time = utc_now + (settings.Tz2Offset * 3600);
+        struct tm *tz2_tm = gmtime(&tz2_time);
+        char time_str[6];
+        strftime(time_str, sizeof(time_str), "%H:%M", tz2_tm);
+        int off = settings.Tz2Offset;
+        char sign = off >= 0 ? '+' : '-';
+        if (off < 0) off = -off;
+        snprintf(buffer, 32, "[TZ2] >> %s UTC%c%d", time_str, sign, off);
+        break;
+      }
       case COMP_NONE:
       default:
         snprintf(buffer, 32, "   ");
@@ -163,6 +183,7 @@ static void render_slots() {
 static void prv_update_display() {
   window_set_background_color(s_main_window, settings.BackgroundColor);
   text_layer_set_text_color(s_time_layer, settings.TextColor);
+  text_layer_set_text_color(s_ampm_layer, settings.TextColor);
 
   for(int i = 0; i < MAX_SLOTS; i++) {
     text_layer_set_text_color(s_slot_layers[i], settings.TextColor);
@@ -177,9 +198,19 @@ static void update_time_data() {
   time_t temp = time(NULL);
   struct tm *tick_time = localtime(&temp);
 
-  static char s_time_buffer[8];
+  static char s_time_buffer[6];
   strftime(s_time_buffer, sizeof(s_time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M", tick_time);
   text_layer_set_text(s_time_layer, s_time_buffer);
+
+  if (clock_is_24h_style()) {
+    layer_set_hidden(text_layer_get_layer(s_ampm_layer), true);
+  } else {
+    s_ampm_buffer[0] = tick_time->tm_hour >= 12 ? 'P' : 'A';
+    s_ampm_buffer[1] = 'M';
+    s_ampm_buffer[2] = '\0';
+    text_layer_set_text(s_ampm_layer, s_ampm_buffer);
+    layer_set_hidden(text_layer_get_layer(s_ampm_layer), false);
+  }
 
   render_slots();
 }
@@ -202,6 +233,28 @@ static void compass_handler(CompassHeadingData heading_data) {
     else if(s_compass_degrees < 338) s_compass_dir = "NW";
   }
   render_slots();
+}
+
+static void compass_timer_callback(void *data) {
+  if (s_compass_subscribed) {
+    compass_service_unsubscribe();
+    s_compass_subscribed = false;
+  }
+  s_compass_timer = NULL;
+}
+
+static void backlight_callback(bool backlight_on) {
+  if (backlight_on) {
+    if (s_compass_timer) {
+      app_timer_cancel(s_compass_timer);
+    }
+    if (!s_compass_subscribed) {
+      compass_service_subscribe(compass_handler);
+      compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360));
+      s_compass_subscribed = true;
+    }
+    s_compass_timer = app_timer_register(3000, compass_timer_callback, NULL);
+  }
 }
 
 static void update_hr() {
@@ -240,7 +293,7 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (tick_time->tm_min % 30 == 0) {
     DictionaryIterator *iter;
     app_message_outbox_begin(&iter);
-    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_WEATHER, 1);
+    dict_write_uint8(iter, MESSAGE_KEY_RequestWeather, 1);
     app_message_outbox_send();
   }
 }
@@ -289,10 +342,12 @@ static void hud_update_proc(Layer *layer, GContext *ctx) {
 
 // --- APPMESSAGE HANDLERS ---
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
-  Tuple *temp_tuple = dict_find(iterator, MESSAGE_KEY_TEMPERATURE);
-  Tuple *conditions_tuple = dict_find(iterator, MESSAGE_KEY_CONDITIONS);
-  Tuple *alt_tuple = dict_find(iterator, MESSAGE_KEY_ALT);
-  Tuple *custom_api_tuple = dict_find(iterator, MESSAGE_KEY_CUSTOM_API);
+  Tuple *temp_tuple = dict_find(iterator, MESSAGE_KEY_Temperature);
+  Tuple *conditions_tuple = dict_find(iterator, MESSAGE_KEY_Conditions);
+  Tuple *alt_tuple = dict_find(iterator, MESSAGE_KEY_Alt);
+  Tuple *custom_api_tuple = dict_find(iterator, MESSAGE_KEY_CustomApi);
+
+  bool settings_changed = false;
 
   if (temp_tuple && conditions_tuple) {
     char temperature_buffer[8];
@@ -311,8 +366,53 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   }
 
   if (alt_tuple) {
-    char alt_buffer[8];
-    snprintf(alt_buffer, sizeof(alt_buffer), "%dF", (int)alt_tuple->value->int32);
+    s_alt_cache = (int)alt_tuple->value->int32;
+  }
+
+  // Handle slot configuration from Clay
+  Tuple *slot_tuples[MAX_SLOTS] = {
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots1),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots2),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots3),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots4),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots5),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots6),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots7)
+  };
+  for (int i = 0; i < MAX_SLOTS; i++) {
+    if (slot_tuples[i]) {
+      settings.ActiveSlots[i] = (ComplicationType)atoi(slot_tuples[i]->value->cstring);
+      settings_changed = true;
+    }
+  }
+
+  Tuple *bg_tuple = dict_find(iterator, MESSAGE_KEY_BackgroundColor);
+  if (bg_tuple) {
+    settings.BackgroundColor = GColorFromHEX(bg_tuple->value->int32);
+    settings_changed = true;
+  }
+
+  Tuple *fg_tuple = dict_find(iterator, MESSAGE_KEY_TextColor);
+  if (fg_tuple) {
+    settings.TextColor = GColorFromHEX(fg_tuple->value->int32);
+    settings_changed = true;
+  }
+
+  Tuple *temp_unit_tuple = dict_find(iterator, MESSAGE_KEY_TemperatureUnit);
+  if (temp_unit_tuple) {
+    settings.TemperatureUnit = temp_unit_tuple->value->int32;
+    settings_changed = true;
+  }
+
+  Tuple *tz2_tuple = dict_find(iterator, MESSAGE_KEY_Tz2Offset);
+  if (tz2_tuple) {
+    settings.Tz2Offset = (int8_t)tz2_tuple->value->int32;
+    settings_changed = true;
+  }
+
+  if (settings_changed) {
+    prv_save_settings();
+    prv_update_display();
   }
 
   render_slots();
@@ -345,6 +445,12 @@ static void main_window_load(Window *window) {
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   layer_add_child(s_window_layer, text_layer_get_layer(s_time_layer));
 
+  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 28, 36, 24, 16));
+  text_layer_set_background_color(s_ampm_layer, GColorClear);
+  text_layer_set_font(s_ampm_layer, s_sys_font);
+  text_layer_set_text_alignment(s_ampm_layer, GTextAlignmentRight);
+  layer_add_child(s_window_layer, text_layer_get_layer(s_ampm_layer));
+
   // Loop generation for all console lines
   int y = 76;
   int step = 16;
@@ -365,6 +471,7 @@ static void main_window_load(Window *window) {
 
 static void main_window_unload(Window *window) {
   text_layer_destroy(s_time_layer);
+  text_layer_destroy(s_ampm_layer);
   for(int i = 0; i < MAX_SLOTS; i++) {
     text_layer_destroy(s_slot_layers[i]);
   }
@@ -400,6 +507,9 @@ static void init() {
   if(needs_compass) {
     compass_service_subscribe(compass_handler);
     compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360));
+    s_compass_subscribed = true;
+    s_compass_timer = app_timer_register(3000, compass_timer_callback, NULL);
+    backlight_service_subscribe(backlight_callback);
   }
 
   battery_state_service_subscribe(battery_callback);
@@ -411,6 +521,12 @@ static void init() {
   app_message_register_inbox_received(inbox_received_callback);
   app_message_open(256, 256);
 
+  // Request weather immediately on startup
+  DictionaryIterator *iter;
+  app_message_outbox_begin(&iter);
+  dict_write_uint8(iter, MESSAGE_KEY_RequestWeather, 1);
+  app_message_outbox_send();
+
   battery_callback(battery_state_service_peek());
   update_time_data();
   update_steps();
@@ -418,6 +534,10 @@ static void init() {
 }
 
 static void deinit() {
+  if (s_compass_timer) {
+    app_timer_cancel(s_compass_timer);
+  }
+  backlight_service_unsubscribe();
   compass_service_unsubscribe();
   health_service_events_unsubscribe();
   battery_state_service_unsubscribe();
