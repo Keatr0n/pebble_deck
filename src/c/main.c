@@ -1,7 +1,7 @@
 #include <pebble.h>
 
 #define SETTINGS_KEY 1
-#define MAX_SLOTS 7
+#define MAX_SLOTS 8
 
 // Master Complication Enum
 typedef enum {
@@ -15,7 +15,9 @@ typedef enum {
   COMP_WEATHER,
   COMP_ALT,
   COMP_CUSTOM_API,
-  COMP_TZ2
+  COMP_TZ2,
+  COMP_TZ3,
+  COMP_MOON_PHASE
 } ComplicationType;
 
 typedef struct ClaySettings {
@@ -59,6 +61,7 @@ static BitmapLayer *s_bt_icon_layer;
 static GBitmap *s_bt_icon_bitmap;
 static Layer *s_window_layer;
 static Layer *s_hud_layer;
+static GRect s_full_bounds;
 
 static void prv_default_settings() {
   settings.BackgroundColor = GColorBlack;
@@ -74,6 +77,7 @@ static void prv_default_settings() {
   settings.ActiveSlots[4] = COMP_HEART_RATE;
   settings.ActiveSlots[5] = COMP_STEPS;
   settings.ActiveSlots[6] = COMP_WEATHER;
+  settings.ActiveSlots[7] = COMP_TZ2;
 }
 
 static void prv_save_settings() {
@@ -95,6 +99,31 @@ static void make_ascii_bar(int percent, char *buffer, int segments) {
   }
   buffer[segments+1] = ']';
   buffer[segments+2] = '\0';
+}
+
+// --- MOON PHASE CALCULATION ---
+static double moon_age(int y, int m, int d) {
+  int a = (14 - m) / 12;
+  int y2 = y + 4800 - a;
+  int m2 = m + 12 * a - 3;
+  double jd = d + (double)((153 * m2 + 2) / 5) + 365 * (double)y2
+              + (double)(y2 / 4) - (double)(y2 / 100) + (double)(y2 / 400) - 32045.0;
+  double age = (jd - 2451550.1) / 29.530588853;
+  age = age - (int)age;
+  if (age < 0) age += 1.0;
+  return age * 29.530588853;
+}
+
+static const char *moon_phase_name(double age) {
+  if (age < 1.84566)       return "NEW";
+  if (age < 5.53699)       return "WXCRESC";
+  if (age < 9.22831)       return "1ST QTR";
+  if (age < 12.91963)      return "WXGIBBS";
+  if (age < 16.61096)      return "FULL";
+  if (age < 20.30228)      return "WNGIBBS";
+  if (age < 23.99361)      return "3RD QTR";
+  if (age < 27.68493)      return "WNCRESC";
+  return "NEW";
 }
 
 // --- CORE RENDER ENGINE ---
@@ -157,7 +186,7 @@ static void render_slots() {
         snprintf(buffer, 32, "[API] >> %s", s_api_cache);
         break;
       case COMP_ALT:
-        snprintf(buffer, 32, "[ALT] >> %d", s_alt_cache);
+        snprintf(buffer, 32, "[ALT] >> %dft", s_alt_cache);
         break;
       case COMP_TZ2: {
         time_t utc_now = time(NULL);
@@ -168,7 +197,36 @@ static void render_slots() {
         int off = settings.Tz2Offset;
         char sign = off >= 0 ? '+' : '-';
         if (off < 0) off = -off;
-        snprintf(buffer, 32, "[TZ2] >> %s UTC%c%d", time_str, sign, off);
+
+        if (off == 0) {
+            snprintf(buffer, 32, "[TZ2] >> %s UTC", time_str);
+        } else {
+            snprintf(buffer, 32, "[TZ2] >> %s UTC%c%d", time_str, sign, off);
+        }
+        break;
+      }
+      case COMP_TZ3: {
+        time_t utc_now = time(NULL);
+        time_t tz2_time = utc_now + (settings.Tz2Offset * 3600);
+        struct tm *tz2_tm = gmtime(&tz2_time);
+        char time_str[6];
+        strftime(time_str, sizeof(time_str), "%H:%M", tz2_tm);
+        int off = settings.Tz2Offset;
+        char sign = off >= 0 ? '+' : '-';
+        if (off < 0) off = -off;
+
+        if (off == 0) {
+            snprintf(buffer, 32, "[TZ2] >> %s UTC", time_str);
+        } else {
+            snprintf(buffer, 32, "[TZ2] >> %s UTC%c%d", time_str, sign, off);
+        }
+        break;
+      }
+      case COMP_MOON_PHASE: {
+        time_t now = time(NULL);
+        struct tm *tm_now = gmtime(&now);
+        double age = moon_age(tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday);
+        snprintf(buffer, 32, "[LUN] >> %s", moon_phase_name(age));
         break;
       }
       case COMP_NONE:
@@ -224,13 +282,13 @@ static void compass_handler(CompassHeadingData heading_data) {
     s_compass_degrees = TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
 
     if(s_compass_degrees < 23 || s_compass_degrees > 337) s_compass_dir = "N";
-    else if(s_compass_degrees < 68) s_compass_dir = "NE";
-    else if(s_compass_degrees < 113) s_compass_dir = "E";
-    else if(s_compass_degrees < 158) s_compass_dir = "SE";
+    else if(s_compass_degrees < 68) s_compass_dir = "NW";
+    else if(s_compass_degrees < 113) s_compass_dir = "W";
+    else if(s_compass_degrees < 158) s_compass_dir = "SW";
     else if(s_compass_degrees < 203) s_compass_dir = "S";
-    else if(s_compass_degrees < 248) s_compass_dir = "SW";
-    else if(s_compass_degrees < 293) s_compass_dir = "W";
-    else if(s_compass_degrees < 338) s_compass_dir = "NW";
+    else if(s_compass_degrees < 248) s_compass_dir = "SE";
+    else if(s_compass_degrees < 293) s_compass_dir = "E";
+    else if(s_compass_degrees < 338) s_compass_dir = "NE";
   }
   render_slots();
 }
@@ -377,7 +435,8 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     dict_find(iterator, MESSAGE_KEY_ActiveSlots4),
     dict_find(iterator, MESSAGE_KEY_ActiveSlots5),
     dict_find(iterator, MESSAGE_KEY_ActiveSlots6),
-    dict_find(iterator, MESSAGE_KEY_ActiveSlots7)
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots7),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots8)
   };
   for (int i = 0; i < MAX_SLOTS; i++) {
     if (slot_tuples[i]) {
@@ -420,10 +479,17 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 
 static void prv_unobstructed_change(AnimationProgress progress, void *context) {
   GRect bounds = layer_get_unobstructed_bounds(s_window_layer);
-  int base_y = bounds.size.h - 98;
+  bool peak_visible = (bounds.size.h < s_full_bounds.size.h);
+  int base_y = 80;
 
   for(int i = 0; i < MAX_SLOTS; i++) {
-    layer_set_frame(text_layer_get_layer(s_slot_layers[i]), GRect(10, base_y + (i * 14), bounds.size.w - 20, 16));
+    layer_set_frame(text_layer_get_layer(s_slot_layers[i]),
+                    GRect(10, base_y + (i * 14), bounds.size.w - 20, 16));
+    if (peak_visible && i >= 5) {
+      layer_set_hidden(text_layer_get_layer(s_slot_layers[i]), true);
+    } else {
+      layer_set_hidden(text_layer_get_layer(s_slot_layers[i]), false);
+    }
   }
 }
 
@@ -431,6 +497,7 @@ static void prv_unobstructed_change(AnimationProgress progress, void *context) {
 static void main_window_load(Window *window) {
   s_window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(s_window_layer);
+  s_full_bounds = bounds;
 
   s_time_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_CHAKRA_56));
   s_sys_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_IBM_14));
@@ -445,7 +512,7 @@ static void main_window_load(Window *window) {
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   layer_add_child(s_window_layer, text_layer_get_layer(s_time_layer));
 
-  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 42, 54, 24, 16));
+  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 40, 54, 24, 16));
   text_layer_set_background_color(s_ampm_layer, GColorClear);
   text_layer_set_font(s_ampm_layer, s_sys_font);
   text_layer_set_text_alignment(s_ampm_layer, GTextAlignmentRight);
@@ -465,6 +532,7 @@ static void main_window_load(Window *window) {
 
   // Properly subbing to Pebble's Quick View / Unobstructed Area API
   UnobstructedAreaHandlers handlers = { .change = prv_unobstructed_change };
+  unobstructed_area_service_subscribe(handlers, NULL);
 
   prv_update_display();
 }
@@ -543,6 +611,7 @@ static void deinit() {
   battery_state_service_unsubscribe();
   connection_service_unsubscribe();
   tick_timer_service_unsubscribe();
+  unobstructed_area_service_unsubscribe();
 
   window_destroy(s_main_window);
 }

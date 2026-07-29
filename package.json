@@ -35,7 +35,9 @@
       "ActiveSlots5",
       "ActiveSlots6",
       "ActiveSlots7",
-      "Tz2Offset"
+      "ActiveSlots8",
+      "Tz2Offset",
+      "Tz3Offset"
     ],
     "projectType": "native",
     "resources": {

@@ -142,7 +142,7 @@ function sendToWatch(temperature, conditions, altitude, customApiString) {
 function updateData() {
   navigator.geolocation.getCurrentPosition(
     function (pos) {
-      var altitude = pos.coords.altitude || 0;
+      var altitude = (pos.coords.altitude || 0) * 3.281;
 
       var url =
         "https://api.open-meteo.com/v1/forecast?" +
@@ -173,7 +173,7 @@ function updateData() {
     },
     {
       timeout: 15000,
-      maximumAge: 60000,
+      maximumAge: 60000
     }
   );
 }

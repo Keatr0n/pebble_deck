@@ -46,6 +46,15 @@
         "min": -12,
         "max": 14,
         "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "Tz3Offset",
+        "label": "Third Timezone (UTC offset)",
+        "defaultValue": 0,
+        "min": -12,
+        "max": 14,
+        "step": 1
       }
     ]
   },
@@ -72,7 +81,9 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       },
       {
@@ -91,7 +102,9 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       },
       {
@@ -110,7 +123,9 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       },
       {
@@ -129,7 +144,9 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       },
       {
@@ -148,7 +165,9 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       },
       {
@@ -167,13 +186,15 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       },
       {
         "type": "select",
         "messageKey": "ActiveSlots7",
-        "label": "Slot 7 (Bottom Line)",
+        "label": "Slot 7",
         "defaultValue": "7",
         "options": [
           { "label": "Disabled / Blank", "value": "0" },
@@ -186,7 +207,30 @@
           { "label": "Weather Condition [MET]", "value": "7" },
           { "label": "Altitude [ALT]", "value": "8" },
           { "label": "Custom Web API [API]", "value": "9" },
-          { "label": "Second Timezone [TZ2]", "value": "10" }
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "ActiveSlots7",
+        "label": "Slot 8 (Bottom Line)",
+        "defaultValue": "8",
+        "options": [
+          { "label": "Disabled / Blank", "value": "0" },
+          { "label": "Date [SYS]", "value": "1" },
+          { "label": "Battery Power [PWR]", "value": "2" },
+          { "label": "Free Heap Memory [MEM]", "value": "3" },
+          { "label": "Compass Direction [NAV]", "value": "4" },
+          { "label": "Heart Rate [BPM]", "value": "5" },
+          { "label": "Step Counter [STP]", "value": "6" },
+          { "label": "Weather Condition [MET]", "value": "7" },
+          { "label": "Altitude [ALT]", "value": "8" },
+          { "label": "Custom Web API [API]", "value": "9" },
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" }
         ]
       }
     ]
