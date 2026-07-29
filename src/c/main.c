@@ -279,16 +279,16 @@ static void compass_handler(CompassHeadingData heading_data) {
     s_compass_valid = false;
   } else {
     s_compass_valid = true;
-    s_compass_degrees = TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
+    s_compass_degrees = 360 - TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
 
     if(s_compass_degrees < 23 || s_compass_degrees > 337) s_compass_dir = "N";
-    else if(s_compass_degrees < 68) s_compass_dir = "NW";
-    else if(s_compass_degrees < 113) s_compass_dir = "W";
-    else if(s_compass_degrees < 158) s_compass_dir = "SW";
+    else if(s_compass_degrees < 68) s_compass_dir = "NE";
+    else if(s_compass_degrees < 113) s_compass_dir = "E";
+    else if(s_compass_degrees < 158) s_compass_dir = "SE";
     else if(s_compass_degrees < 203) s_compass_dir = "S";
-    else if(s_compass_degrees < 248) s_compass_dir = "SE";
-    else if(s_compass_degrees < 293) s_compass_dir = "E";
-    else if(s_compass_degrees < 338) s_compass_dir = "NE";
+    else if(s_compass_degrees < 248) s_compass_dir = "SW";
+    else if(s_compass_degrees < 293) s_compass_dir = "W";
+    else if(s_compass_degrees < 338) s_compass_dir = "NW";
   }
   render_slots();
 }
@@ -311,7 +311,7 @@ static void backlight_callback(bool backlight_on) {
       compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360));
       s_compass_subscribed = true;
     }
-    s_compass_timer = app_timer_register(3000, compass_timer_callback, NULL);
+    s_compass_timer = app_timer_register(5000, compass_timer_callback, NULL);
   }
 }
 
@@ -576,7 +576,7 @@ static void init() {
     compass_service_subscribe(compass_handler);
     compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360));
     s_compass_subscribed = true;
-    s_compass_timer = app_timer_register(3000, compass_timer_callback, NULL);
+    s_compass_timer = app_timer_register(5000, compass_timer_callback, NULL);
     backlight_service_subscribe(backlight_callback);
   }
 
