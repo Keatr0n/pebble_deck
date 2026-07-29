@@ -108,7 +108,7 @@ function fetchCustomApi(temperature, conditions, altitude) {
     function (status, responseText) {
       var customApiString;
 
-      if (status === 200 && responseText) {
+      if (status >= 200 && status < 300 && responseText) {
         customApiString = parseCustomApiResponse(responseText, apiConfig.regex);
       } else {
         customApiString = "API OFFLINE";
