@@ -214,7 +214,7 @@
       },
       {
         "type": "select",
-        "messageKey": "ActiveSlots7",
+        "messageKey": "ActiveSlots8",
         "label": "Slot 8 (Bottom Line)",
         "defaultValue": "8",
         "options": [
