@@ -49,6 +49,7 @@ function loadApiConfig() {
     endpointUrl: "",
     regex: defaultApiRegex,
     auth: "",
+    useFahrenheit: false,
   };
   try {
     var raw = localStorage.getItem("clay-settings");
@@ -65,8 +66,13 @@ function loadApiConfig() {
       if (claySettings.CustomApiAuth) {
         config.auth = claySettings.CustomApiAuth;
       }
+      if (claySettings.TemperatureUnit) {
+        config.useFahrenheit = claySettings.TemperatureUnit;
+      }
     }
-  } catch (_) {}
+  } catch (e) {
+    console.error(e);
+  }
   return config;
 }
 
@@ -90,14 +96,12 @@ function parseCustomApiResponse(body, regex) {
 }
 
 // Fetch custom API endpoint and then send everything to the watch
-function fetchCustomApi(temperature, conditions, altitude) {
-  var apiConfig = loadApiConfig();
-
+function fetchCustomApi(conditions, altitude, apiConfig) {
   if (
     !apiConfig.endpointUrl ||
     apiConfig.endpointUrl.indexOf("https://") !== 0
   ) {
-    sendToWatch(temperature, conditions, altitude, "API ERR");
+    sendToWatch(conditions, altitude, "API ERR");
     return;
   }
 
@@ -109,20 +113,26 @@ function fetchCustomApi(temperature, conditions, altitude) {
       var customApiString;
 
       if (status >= 200 && status < 300 && responseText) {
-        customApiString = parseCustomApiResponse(responseText, apiConfig.regex);
+        try {
+          customApiString = parseCustomApiResponse(
+            responseText,
+            apiConfig.regex
+          );
+        } catch (e) {
+          console.error(e);
+        }
       } else {
         customApiString = "API OFFLINE";
       }
 
-      sendToWatch(temperature, conditions, altitude, customApiString);
+      sendToWatch(conditions, altitude, customApiString);
     }
   );
 }
 
 // Send telemetry data to the Pebble watch
-function sendToWatch(temperature, conditions, altitude, customApiString) {
+function sendToWatch(conditions, altitude, customApiString) {
   var dictionary = {};
-  dictionary["Temperature"] = temperature;
   dictionary["Conditions"] = conditions;
   dictionary["Alt"] = altitude;
   dictionary["CustomApi"] = customApiString;
@@ -140,6 +150,8 @@ function sendToWatch(temperature, conditions, altitude, customApiString) {
 
 // Fetch weather from Open-Meteo, then fetch custom API, then send to watch
 function updateData() {
+  var config = loadApiConfig();
+
   navigator.geolocation.getCurrentPosition(
     function (pos) {
       var altitude = (pos.coords.altitude || 0) * 3.281;
@@ -158,22 +170,31 @@ function updateData() {
 
         if (status === 200 && responseText) {
           var json = JSON.parse(responseText);
-          temperature = Math.round(json.current.temperature_2m);
-          conditions = weatherCodeToCondition(json.current.weather_code);
+
+          var temp_value = Math.round(json.current.temperature_2m);
+
+          if (config.useFahrenheit) {
+            temp_value = Math.round((temp_value * 9) / 5 + 32);
+          }
+
+          conditions =
+            temp_value +
+            (config.useFahrenheit ? "F " : "C ") +
+            weatherCodeToCondition(json.current.weather_code);
         } else {
           conditions = "OFFLINE";
         }
 
-        fetchCustomApi(temperature, conditions, altitude);
+        fetchCustomApi(conditions, altitude, config);
       });
     },
     function (err) {
       console.log("Error requesting location!");
-      fetchCustomApi(0, "NO GPS", 0);
+      fetchCustomApi("NO GPS", 0, config);
     },
     {
       timeout: 15000,
-      maximumAge: 60000
+      maximumAge: 60000,
     }
   );
 }

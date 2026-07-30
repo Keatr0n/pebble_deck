@@ -23,9 +23,9 @@ typedef enum {
 typedef struct ClaySettings {
   GColor BackgroundColor;
   GColor TextColor;
-  bool TemperatureUnit;
   ComplicationType ActiveSlots[MAX_SLOTS];
   int8_t Tz2Offset;
+  int8_t Tz3Offset;
 } ClaySettings;
 
 static ClaySettings settings;
@@ -57,8 +57,6 @@ static int s_alt_cache = 0;
 static AppTimer *s_compass_timer = NULL;
 static bool s_compass_subscribed = false;
 
-static BitmapLayer *s_bt_icon_layer;
-static GBitmap *s_bt_icon_bitmap;
 static Layer *s_window_layer;
 static Layer *s_hud_layer;
 static GRect s_full_bounds;
@@ -66,8 +64,8 @@ static GRect s_full_bounds;
 static void prv_default_settings() {
   settings.BackgroundColor = GColorBlack;
   settings.TextColor = GColorCyan;
-  settings.TemperatureUnit = false;
   settings.Tz2Offset = 0;
+  settings.Tz3Offset = 0;
 
   // Default stack order of your original face
   settings.ActiveSlots[0] = COMP_DATE;
@@ -207,18 +205,18 @@ static void render_slots() {
       }
       case COMP_TZ3: {
         time_t utc_now = time(NULL);
-        time_t tz2_time = utc_now + (settings.Tz2Offset * 3600);
-        struct tm *tz2_tm = gmtime(&tz2_time);
+        time_t tz3_time = utc_now + (settings.Tz3Offset * 3600);
+        struct tm *tz3_tm = gmtime(&tz3_time);
         char time_str[6];
-        strftime(time_str, sizeof(time_str), "%H:%M", tz2_tm);
-        int off = settings.Tz2Offset;
+        strftime(time_str, sizeof(time_str), "%H:%M", tz3_tm);
+        int off = settings.Tz3Offset;
         char sign = off >= 0 ? '+' : '-';
         if (off < 0) off = -off;
 
         if (off == 0) {
-            snprintf(buffer, 32, "[TZ2] >> %s UTC", time_str);
+            snprintf(buffer, 32, "[TZ3] >> %s UTC", time_str);
         } else {
-            snprintf(buffer, 32, "[TZ2] >> %s UTC%c%d", time_str, sign, off);
+            snprintf(buffer, 32, "[TZ3] >> %s UTC%c%d", time_str, sign, off);
         }
         break;
       }
@@ -369,11 +367,6 @@ static void battery_callback(BatteryChargeState state) {
   render_slots();
 }
 
-static void bluetooth_callback(bool connected) {
-  layer_set_hidden(bitmap_layer_get_layer(s_bt_icon_layer), connected);
-  if (!connected) vibes_double_pulse();
-}
-
 // --- GRAPHICS UPDATERS ---
 static void hud_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
@@ -400,23 +393,14 @@ static void hud_update_proc(Layer *layer, GContext *ctx) {
 
 // --- APPMESSAGE HANDLERS ---
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
-  Tuple *temp_tuple = dict_find(iterator, MESSAGE_KEY_Temperature);
   Tuple *conditions_tuple = dict_find(iterator, MESSAGE_KEY_Conditions);
   Tuple *alt_tuple = dict_find(iterator, MESSAGE_KEY_Alt);
   Tuple *custom_api_tuple = dict_find(iterator, MESSAGE_KEY_CustomApi);
 
   bool settings_changed = false;
 
-  if (temp_tuple && conditions_tuple) {
-    char temperature_buffer[8];
-    int temp_value = (int)temp_tuple->value->int32;
-    if (settings.TemperatureUnit) {
-      temp_value = (temp_value * 9 / 5) + 32;
-      snprintf(temperature_buffer, sizeof(temperature_buffer), "%dF", temp_value);
-    } else {
-      snprintf(temperature_buffer, sizeof(temperature_buffer), "%dC", temp_value);
-    }
-    snprintf(s_weather_cache, sizeof(s_weather_cache), "%s %s", temperature_buffer, conditions_tuple->value->cstring);
+  if (conditions_tuple) {
+    snprintf(s_weather_cache, sizeof(s_weather_cache), "%s", conditions_tuple->value->cstring);
   }
 
   if (custom_api_tuple) {
@@ -457,15 +441,15 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     settings_changed = true;
   }
 
-  Tuple *temp_unit_tuple = dict_find(iterator, MESSAGE_KEY_TemperatureUnit);
-  if (temp_unit_tuple) {
-    settings.TemperatureUnit = temp_unit_tuple->value->int32;
-    settings_changed = true;
-  }
-
   Tuple *tz2_tuple = dict_find(iterator, MESSAGE_KEY_Tz2Offset);
   if (tz2_tuple) {
     settings.Tz2Offset = (int8_t)tz2_tuple->value->int32;
+    settings_changed = true;
+  }
+
+  Tuple *tz3_tuple = dict_find(iterator, MESSAGE_KEY_Tz3Offset);
+  if (tz3_tuple) {
+    settings.Tz3Offset = (int8_t)tz3_tuple->value->int32;
     settings_changed = true;
   }
 
@@ -512,7 +496,7 @@ static void main_window_load(Window *window) {
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   layer_add_child(s_window_layer, text_layer_get_layer(s_time_layer));
 
-  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 40, 54, 24, 16));
+  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 39, 54, 24, 16));
   text_layer_set_background_color(s_ampm_layer, GColorClear);
   text_layer_set_font(s_ampm_layer, s_sys_font);
   text_layer_set_text_alignment(s_ampm_layer, GTextAlignmentRight);
@@ -546,8 +530,6 @@ static void main_window_unload(Window *window) {
   fonts_unload_custom_font(s_time_font);
   fonts_unload_custom_font(s_sys_font);
   layer_destroy(s_hud_layer);
-  gbitmap_destroy(s_bt_icon_bitmap);
-  bitmap_layer_destroy(s_bt_icon_layer);
 }
 
 static void init() {
@@ -581,9 +563,6 @@ static void init() {
   }
 
   battery_state_service_subscribe(battery_callback);
-  connection_service_subscribe((ConnectionHandlers) {
-    .pebble_app_connection_handler = bluetooth_callback
-  });
 
   // Open up AppMessage inbox to receive the weather and upcoming custom API strings
   app_message_register_inbox_received(inbox_received_callback);
