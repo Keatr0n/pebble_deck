@@ -292,6 +292,11 @@ static void compass_handler(CompassHeadingData heading_data) {
 }
 
 static void compass_timer_callback(void *data) {
+  if (!s_compass_valid) {
+    s_compass_timer = app_timer_register(10000, compass_timer_callback, NULL);
+    return;
+  }
+
   if (s_compass_subscribed) {
     compass_service_unsubscribe();
     s_compass_subscribed = false;
