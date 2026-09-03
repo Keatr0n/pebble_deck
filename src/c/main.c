@@ -3,6 +3,29 @@
 #define SETTINGS_KEY 1
 #define MAX_SLOTS 8
 
+// HRV comes from the sensor's peak-to-peak (RR) intervals. The Goodix algorithm reports
+// bursts of up to 4 consecutive intervals, each as its own HealthEventHRVUpdate, so RMSSD
+// over a rolling window of them is a real measurement rather than an approximation.
+// Holding an HRV sample period keeps the PPG sensor and the HRV algorithm running, so the
+// sensor is only opened for a short measurement window every so often rather than left on.
+// HRV moves slowly enough that a half-hourly reading loses nothing.
+#define HRV_BUF_LEN 16              // Rolling window of RR intervals
+#define HRV_MIN_DIFFS 4             // Successive differences needed before showing a number
+#define HRV_PPI_MIN_MS 300          // 200 bpm - anything shorter is an artifact
+#define HRV_PPI_MAX_MS 2000         // 30 bpm - anything longer is an artifact
+#define HRV_MAX_DIFF_MS 250         // Reject ectopic beats and gaps between bursts
+#define HRV_MEASURE_EVERY_SEC 1800  // Start a fresh measurement window every 30 min
+#define HRV_BURST_PERIOD_SEC 5      // Sample fast inside a window so it closes quickly
+#define HRV_WINDOW_MAX_SEC 120      // Abandon a window that isn't filling up
+#define HRV_RESULT_STALE_SEC 7200   // Stop trusting a number after 2 h of failed windows
+
+// The HRV API landed in SDK 4.32; older SDKs still build, they just report N/A.
+// Testing the symbol pebble_sdk_version.h generates, rather than going through the
+// PBL_API_EXISTS() wrapper, because the wrapper expands to defined() inside an #if.
+#if defined(PBL_HEALTH) && defined(_PBL_API_EXISTS_health_service_set_hrv_sample_period)
+#define DECK_HAS_HRV 1
+#endif
+
 // Master Complication Enum
 typedef enum {
   COMP_NONE = 0,
@@ -17,7 +40,8 @@ typedef enum {
   COMP_CUSTOM_API,
   COMP_TZ2,
   COMP_TZ3,
-  COMP_MOON_PHASE
+  COMP_MOON_PHASE,
+  COMP_HRV
 } ComplicationType;
 
 typedef struct ClaySettings {
@@ -53,9 +77,30 @@ static int s_steps_value = 0;
 static char s_weather_cache[32] = "SCANNING...";
 static char s_api_cache[16] = "NO DATA";
 static int s_alt_cache = 0;
+static char s_moon_cache[16] = "";
+static int s_moon_day = -1;
+
+// HRV state. UNSUPPORTED covers both "no HRV hardware" (only the Pebble Time 2 / obelix
+// board enables it) and "user has heart rate turned off in settings".
+typedef enum {
+  HRV_UNSUPPORTED = 0,  // Sensor or user settings ruled it out up front
+  HRV_NO_DATA,          // Subscription accepted, but nothing ever came back
+  HRV_COLLECTING,
+  HRV_READY
+} HrvState;
+
+static HrvState s_hrv_state = HRV_COLLECTING;
+static int s_hrv_rmssd = 0;
+static uint16_t s_hrv_ppi[HRV_BUF_LEN];
+static int s_hrv_count = 0;
+static int s_hrv_head = 0;
+static bool s_hrv_measuring = false;  // True only while the sensor is actually open
+static time_t s_hrv_window_start = 0;
+static time_t s_hrv_result_at = 0;    // When the displayed number was measured
 
 static AppTimer *s_compass_timer = NULL;
 static bool s_compass_subscribed = false;
+static bool s_health_subscribed = false;
 
 static Layer *s_window_layer;
 static Layer *s_hud_layer;
@@ -99,6 +144,26 @@ static void make_ascii_bar(int percent, char *buffer, int segments) {
   buffer[segments+2] = '\0';
 }
 
+// --- HELPER: IS A COMPLICATION ON SCREEN? ---
+static bool prv_slot_active(ComplicationType comp) {
+  for (int i = 0; i < MAX_SLOTS; i++) {
+    if (settings.ActiveSlots[i] == comp) return true;
+  }
+  return false;
+}
+
+// --- HELPER: INTEGER SQUARE ROOT (NEWTON) ---
+static uint32_t prv_isqrt(uint32_t n) {
+  if (n == 0) return 0;
+  uint32_t x = n;
+  uint32_t y = (x + 1) / 2;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) / 2;
+  }
+  return x;
+}
+
 // --- MOON PHASE CALCULATION ---
 static double moon_age(int y, int m, int d) {
   int a = (14 - m) / 12;
@@ -124,17 +189,21 @@ static const char *moon_phase_name(double age) {
   return "NEW";
 }
 
+static void health_handler(HealthEventType event, void *context);
+
 // --- CORE RENDER ENGINE ---
 static void render_slots() {
   for (int i = 0; i < MAX_SLOTS; i++) {
     ComplicationType current_comp = settings.ActiveSlots[i];
-    char *buffer = s_slot_buffers[i];
+    char scratch[32];
+    char *buffer = scratch;
+    buffer[0] = '\0';
 
     switch(current_comp) {
       case COMP_DATE: {
         time_t temp = time(NULL);
         struct tm *tick_time = localtime(&temp);
-        strftime(buffer, 32, "[SYS] >> %a %m.%d", tick_time);
+        strftime(buffer, 32, "[SYS] >> %a %d.%m", tick_time);
         break;
       }
       case COMP_BATTERY: {
@@ -164,6 +233,21 @@ static void render_slots() {
         }
 #else
         snprintf(buffer, 32, "[BPM] >> N/A");
+#endif
+        break;
+      case COMP_HRV:
+#if defined(DECK_HAS_HRV)
+        if (s_hrv_state == HRV_READY) {
+          snprintf(buffer, 32, "[HRV] >> %d MS", s_hrv_rmssd);
+        } else if (s_hrv_state == HRV_COLLECTING) {
+          snprintf(buffer, 32, "[HRV] >> COLLECTING");
+        } else if (s_hrv_state == HRV_NO_DATA) {
+          snprintf(buffer, 32, "[HRV] >> NO DATA");
+        } else {
+          snprintf(buffer, 32, "[HRV] >> UNSUPPORTED");
+        }
+#else
+        snprintf(buffer, 32, "[HRV] >> N/A");
 #endif
         break;
       case COMP_STEPS: {
@@ -223,8 +307,14 @@ static void render_slots() {
       case COMP_MOON_PHASE: {
         time_t now = time(NULL);
         struct tm *tm_now = gmtime(&now);
-        double age = moon_age(tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday);
-        snprintf(buffer, 32, "[LUN] >> %s", moon_phase_name(age));
+        // The double maths here is soft-float on this CPU and the phase only changes
+        // once a day, so hold the answer until the date rolls over.
+        if (tm_now->tm_yday != s_moon_day) {
+          double age = moon_age(tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday);
+          snprintf(s_moon_cache, sizeof(s_moon_cache), "%s", moon_phase_name(age));
+          s_moon_day = tm_now->tm_yday;
+        }
+        snprintf(buffer, 32, "[LUN] >> %s", s_moon_cache);
         break;
       }
       case COMP_NONE:
@@ -232,7 +322,12 @@ static void render_slots() {
         snprintf(buffer, 32, "   ");
         break;
     }
-    text_layer_set_text(s_slot_layers[i], buffer);
+    buffer[sizeof(scratch) - 1] = '\0';
+    // Repainting costs more than comparing, and most events change nothing on screen.
+    if (strcmp(buffer, s_slot_buffers[i]) != 0) {
+      memcpy(s_slot_buffers[i], scratch, sizeof(scratch));
+      text_layer_set_text(s_slot_layers[i], s_slot_buffers[i]);
+    }
   }
 }
 
@@ -334,6 +429,124 @@ static void update_hr() {
   render_slots();
 }
 
+// --- HRV: RMSSD OVER THE SENSOR'S RR INTERVALS ---
+#if defined(DECK_HAS_HRV)
+// Clears the interval buffer only. The last computed RMSSD deliberately survives, so the
+// slot keeps showing the previous reading while the next window is being collected.
+static void prv_hrv_reset() {
+  s_hrv_count = 0;
+  s_hrv_head = 0;
+}
+
+static void prv_hrv_push_ppi(uint16_t ppi) {
+  // A 0 here means off-wrist or no reading; out-of-range values are sensor artifacts.
+  if (ppi < HRV_PPI_MIN_MS || ppi > HRV_PPI_MAX_MS) return;
+
+  s_hrv_ppi[s_hrv_head] = ppi;
+  s_hrv_head = (s_hrv_head + 1) % HRV_BUF_LEN;
+  if (s_hrv_count < HRV_BUF_LEN) s_hrv_count++;
+}
+
+// Returns true if there were enough clean intervals to produce a number.
+static bool prv_hrv_compute() {
+  uint32_t sum_sq = 0;
+  int diffs = 0;
+  int start = (s_hrv_head - s_hrv_count + HRV_BUF_LEN) % HRV_BUF_LEN;
+
+  for (int i = 1; i < s_hrv_count; i++) {
+    int prev = s_hrv_ppi[(start + i - 1) % HRV_BUF_LEN];
+    int delta = s_hrv_ppi[(start + i) % HRV_BUF_LEN] - prev;
+    if (delta < 0) delta = -delta;
+    // Skip jumps too big to be beat-to-beat: an ectopic beat, or the gap between two bursts.
+    if (delta > HRV_MAX_DIFF_MS) continue;
+    sum_sq += (uint32_t)(delta * delta);
+    diffs++;
+  }
+
+  if (diffs < HRV_MIN_DIFFS) return false;
+  s_hrv_rmssd = (int)prv_isqrt(sum_sq / (uint32_t)diffs);
+  return true;
+}
+
+static void prv_hrv_stop_window() {
+  health_service_set_hrv_sample_period(0);  // Let the sensor go back to sleep
+  s_hrv_measuring = false;
+}
+
+static void prv_hrv_start_window() {
+  if (!health_service_set_hrv_sample_period(HRV_BURST_PERIOD_SEC)) {
+    s_hrv_state = HRV_UNSUPPORTED;
+    return;
+  }
+  prv_hrv_reset();
+  s_hrv_measuring = true;
+  s_hrv_window_start = time(NULL);
+  if (s_hrv_state == HRV_UNSUPPORTED) s_hrv_state = HRV_COLLECTING;
+}
+
+static void prv_hrv_finish_window(time_t now) {
+  if (prv_hrv_compute()) {
+    s_hrv_state = HRV_READY;
+    s_hrv_result_at = now;
+  } else if (s_hrv_state != HRV_READY) {
+    // Nothing to show yet; say whether the sensor was silent or just too noisy.
+    s_hrv_state = (s_hrv_count == 0) ? HRV_NO_DATA : HRV_COLLECTING;
+  }
+  // A failed window leaves any previous number on screen until it goes stale.
+  prv_hrv_stop_window();
+}
+#endif
+
+// Drives the measurement schedule. Called once a minute; the sensor is open only
+// between prv_hrv_start_window() and prv_hrv_finish_window().
+static void prv_hrv_tick(time_t now) {
+#if defined(DECK_HAS_HRV)
+  if (!prv_slot_active(COMP_HRV)) {
+    if (s_hrv_measuring) prv_hrv_stop_window();
+    return;
+  }
+
+  if (s_hrv_measuring) {
+    if ((now - s_hrv_window_start) >= HRV_WINDOW_MAX_SEC) {
+      prv_hrv_finish_window(now);
+      render_slots();
+    }
+    return;
+  }
+
+  if (s_hrv_state == HRV_READY && (now - s_hrv_result_at) > HRV_RESULT_STALE_SEC) {
+    s_hrv_state = HRV_NO_DATA;
+    render_slots();
+  }
+
+  // s_hrv_result_at stays 0 until a window succeeds, so a watch whose activity service
+  // wasn't ready at startup - or that has no HRV at all - simply retries each minute.
+  if (s_hrv_result_at == 0 || (now - s_hrv_result_at) >= HRV_MEASURE_EVERY_SEC) {
+    prv_hrv_start_window();
+  }
+#endif
+}
+
+// Re-evaluate when the slot layout changes: stop the sensor if HRV was removed, and
+// take a reading straight away if it was just added.
+static void prv_hrv_on_layout_change() {
+#if defined(DECK_HAS_HRV)
+  if (!prv_slot_active(COMP_HRV)) {
+    if (s_hrv_measuring) prv_hrv_stop_window();
+    prv_hrv_reset();
+    s_hrv_rmssd = 0;
+    s_hrv_state = HRV_COLLECTING;
+    s_hrv_result_at = 0;
+    return;
+  }
+
+  if (!s_health_subscribed) {
+    s_health_subscribed = health_service_events_subscribe(health_handler, NULL);
+  }
+  if (!s_hrv_measuring) prv_hrv_start_window();
+#endif
+}
+
 static void update_steps() {
 #if defined(PBL_HEALTH)
   HealthMetric metric = HealthMetricStepCount;
@@ -351,6 +564,7 @@ static void update_steps() {
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   update_time_data();
+  prv_hrv_tick(time(NULL));
   if (tick_time->tm_min % 30 == 0) {
     DictionaryIterator *iter;
     app_message_outbox_begin(&iter);
@@ -365,6 +579,18 @@ static void health_handler(HealthEventType event, void *context) {
   } else if (event == HealthEventHeartRateUpdate) {
     update_hr();
   }
+#if defined(DECK_HAS_HRV)
+  // Each event carries one RR interval, and a burst arrives as several back-to-back
+  // events, so every one has to be picked up to keep the intervals consecutive.
+  else if (event == HealthEventHRVUpdate && s_hrv_measuring) {
+    prv_hrv_push_ppi(health_service_peek_hrv_ppi_ms());
+    // Close the window the moment there's enough data - every extra second is sensor power.
+    if (s_hrv_count >= HRV_BUF_LEN) {
+      prv_hrv_finish_window(time(NULL));
+      render_slots();
+    }
+  }
+#endif
 }
 
 static void battery_callback(BatteryChargeState state) {
@@ -460,6 +686,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 
   if (settings_changed) {
     prv_save_settings();
+    prv_hrv_on_layout_change();
     prv_update_display();
   }
 
@@ -552,12 +779,13 @@ static void init() {
   bool needs_health = false;
   bool needs_compass = false;
   for(int i=0; i<MAX_SLOTS; i++) {
-    if(settings.ActiveSlots[i] == COMP_STEPS || settings.ActiveSlots[i] == COMP_HEART_RATE) needs_health = true;
+    if(settings.ActiveSlots[i] == COMP_STEPS || settings.ActiveSlots[i] == COMP_HEART_RATE
+       || settings.ActiveSlots[i] == COMP_HRV) needs_health = true;
     if(settings.ActiveSlots[i] == COMP_COMPASS) needs_compass = true;
   }
 
   if(needs_health) {
-    health_service_events_subscribe(health_handler, NULL);
+    s_health_subscribed = health_service_events_subscribe(health_handler, NULL);
   }
   if(needs_compass) {
     compass_service_subscribe(compass_handler);
@@ -583,9 +811,15 @@ static void init() {
   update_time_data();
   update_steps();
   update_hr();
+  prv_hrv_on_layout_change();
+  render_slots(); // Paint the settled HRV state now rather than waiting for the first tick
 }
 
 static void deinit() {
+#if defined(DECK_HAS_HRV)
+  // The request survives app exit if left set, so give the HRM its battery back.
+  health_service_set_hrv_sample_period(0);
+#endif
   if (s_compass_timer) {
     app_timer_cancel(s_compass_timer);
   }

@@ -83,7 +83,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -104,7 +105,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -125,7 +127,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -146,7 +149,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -167,7 +171,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -188,7 +193,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -209,7 +215,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       },
       {
@@ -230,7 +237,8 @@
           { "label": "Custom Web API [API]", "value": "9" },
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
-          { "label": "Moon Phase [LUN]", "value": "12" }
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" }
         ]
       }
     ]
